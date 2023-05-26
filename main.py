@@ -45,14 +45,36 @@ class Label(tk.Label):
 
 
 def applyEntries():     # decide whether to append a new row or modify existing based on given titleID
-    print('applyEntries')
+    Warn.config(text='')    # reset Warning text
+    # get input values
+    inputTitleID = TitleID_Field.get()
+    inputName = Name_Field.get()
+    inputImage = Image_Field.get()
+    inputTitleID = inputTitleID.upper()
+    data = ((inputTitleID, inputName, inputImage))
 
+    if not validateEntry(inputTitleID):
+        showAlert('TitleID is not valid!')
+    else:
+    # TitleID needs to be validated as unique, if not, then modify existing row
+        con = sqlite3.connect('zraGameDB.db')   # connect to DB
+        cur = con.cursor()
+        tblName = "PS3"
+        result = cur.execute(f"SELECT titleID FROM {tblName} WHERE titleID == '{inputTitleID}'")
+        result = result.fetchall()  # if a result is found, the titleID already exists and the entry should be UPDATED
+        if len(result) == 1:    # UPDATE
+            cur.execute(f"UPDATE {tblName} SET titleID='{data[0]}', name='{data[1]}', image='{data[2]}' WHERE titleID='{data[0]}'")
+            con.commit()
+        elif len(result) == 0:  # INSERT
+            cur.execute(f"INSERT INTO {tblName} VALUES(?, ?, ?)", data)
+            con.commit()
 
 def clearEntries():         # clear user input and warning
     TitleID_Field.delete(0, tk.END)
     Name_Field.delete(0, tk.END)
     Image_Field.delete(0, tk.END)
     Warn.config(text='')
+    DeleteButton.place_forget()
     # destroy image
     try:
         window.nametowidget('displayedImage').destroy()
@@ -76,6 +98,7 @@ def getRow():
             exit('Database integrity error, more than one titleID found')
         elif len(result) == 0:  # no row was selected, entry does not exist
             alert = f"No entry found for '{value}'!"
+            clearEntries()
             showAlert(alert)
         else:   # display found row in UI
             # delete all current text in fields
@@ -87,6 +110,8 @@ def getRow():
             # display image
             img = result[0][2]
             img = img.strip('\n')   # newline character breaks Pillow(?)
+            # enable button to delete row
+            DeleteButton.place(x=100, y=300, width=100)
             showImg(img)
 
 
@@ -106,15 +131,35 @@ def showAlert(val):
 
 workaround = []
 def showImg(url):
-    img_url = url
-    response = requests.get(img_url)
-    img_data = response.content
-    img = Image.open(BytesIO(img_data))
-    img = img.resize((250, 250))
-    img = ImageTk.PhotoImage(img)
-    workaround.append(img)  # without this garbage collection claims the reference and it doesn't work, stupid.
-    panel = tk.Label(window, image=img, name="displayedImage")  # set a name so can be found in other functions
-    panel.place(x=350, y=20)
+    if url != "":   # Do not attempt to show an image if none has been supplied
+        img_url = url
+        try:
+            response = requests.get(img_url)
+            img_data = response.content
+            img = Image.open(BytesIO(img_data))
+            img = img.resize((250, 250))
+            img = ImageTk.PhotoImage(img)
+            workaround.append(img)  # without this garbage collection claims the reference and it doesn't work, stupid.
+            panel = tk.Label(window, image=img, name="displayedImage")  # set a name so can be found in other functions
+            panel.place(x=350, y=20)
+        except Exception as e:
+            Warn.config(text=e)
+
+
+def deleteRow():
+    inputTitleID = TitleID_Field.get()
+
+    con = sqlite3.connect('zraGameDB.db')  # connect to DB
+    cur = con.cursor()
+    tblName = "PS3"  # !will have to be changed if ever get around to implementing multiple tables!
+    try:
+        cur.execute(f'DELETE FROM {tblName} WHERE titleID="{inputTitleID}"')
+        con.commit()
+        clearEntries()  # needs to be called here otherwise Warn will be cleared as well
+    except Exception as e:
+        Warn.config(text=e)
+
+
 
 
 cl = Colors()  # create instance of Colors()
@@ -125,7 +170,7 @@ height = 400    # height of window
 windowSize = '{w}x{h}'.format(w=width, h=height)    # format needed for tk.geometry()
 window.geometry(windowSize)     # apply sizing. !Does not care about users resolution!
 font = tkFont.Font(family='Helvetica', size=12)     # font used
-window.title('Build 0.6')   # text shown in title-bar
+window.title('Build 0.8')   # text shown in title-bar
 window.iconbitmap('froge.ico')  # set icon to be used in title-bar
 window.configure(bg=cl.gray)  # set background colour of window
 window.resizable(width=False, height=False)     # disable resizing as widgets are not scalable anyway
@@ -139,6 +184,9 @@ DiscardButton.place(x=500, y=300, width=100)
 
 GetButton = Button(window, text="Get row", command=getRow)
 GetButton.place(x=200, y=35, width=100)
+
+DeleteButton = Button(window, text="Delete", command=deleteRow)
+
 
 # Create and place entries and labels
 TitleID_Label = Label(window, text="TitleID:")
