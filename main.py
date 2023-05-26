@@ -1,8 +1,12 @@
+# This database doesn't hold any confidential data and because of this I haven't yet bothered to harden it
+# to attacks. If I ever do, it will be to demonstrate knowledge rather than to try and protect anything.
 import tkinter as tk
 import tkinter.font as tkFont
 import requests
 from PIL import ImageTk, Image
 from io import BytesIO
+import sqlite3
+import re
 
 
 class Colors:
@@ -44,28 +48,73 @@ def applyEntries():     # decide whether to append a new row or modify existing 
     print('applyEntries')
 
 
-def clearEntries():         # clear user input
+def clearEntries():         # clear user input and warning
     TitleID_Field.delete(0, tk.END)
     Name_Field.delete(0, tk.END)
     Image_Field.delete(0, tk.END)
-    # need to destroy image as well
+    Warn.config(text='')
+    # destroy image
+    try:
+        window.nametowidget('displayedImage').destroy()
+    except KeyError:    # there is no image to destroy
+        pass
 
 
 def getRow():
-    # should get value of TitleID_Field, then clear all Fields, then search for input value in database,
-    # if found, populate all Fields with respective info, if not found, alert user in some way
-    value = TitleID_Field.get()
-    print('User entered "{val}"'.format(val=value))
-    if value == "":
-        pass
+    value = TitleID_Field.get()     # get value of Field
+    value = value.upper()   # titleIDs are all uppercase
+    # print('User entered "{val}"'.format(val=value))
+    if not validateEntry(value):
+        showAlert('TitleID is invalid!')
     else:
-        pass
-        # DOTHIS
+        con = sqlite3.connect('zraGameDB.db')   # connect to DB
+        cur = con.cursor()
+        tblName = "PS3"     # !will have to be changed if ever get around to implementing multiple tables!
+        result = cur.execute(f'SELECT * FROM {tblName} WHERE titleID == "{value}"')     # execute sql
+        result = result.fetchall()
+        if len(result) > 1:  # if more than one row is selected something is very wrong with database as titleID should be unique
+            exit('Database integrity error, more than one titleID found')
+        elif len(result) == 0:  # no row was selected, entry does not exist
+            alert = f"No entry found for '{value}'!"
+            showAlert(alert)
+        else:   # display found row in UI
+            # delete all current text in fields
+            clearEntries()
+            # set values from DB
+            TitleID_Field.insert(0, result[0][0])
+            Name_Field.insert(0, result[0][1])
+            Image_Field.insert(0, result[0][2])
+            # display image
+            img = result[0][2]
+            img = img.strip('\n')   # newline character breaks Pillow(?)
+            showImg(img)
 
 
-def validateEntry():    # validate user input is a valid titleID
-    # titleIDs are 'ABCD12345' form, capitalised, without any punctuation.
-    pass
+def validateEntry(val):    # validate user input is a valid titleID
+    # from beginning of string match 4 letters followed by 5 numbers followed by the end of the string
+    res = re.match('^([A-Z]{4}[0-9]{5})$', val)
+    if res:
+        return True
+    else:
+        return False
+
+
+def showAlert(val):
+    Warn.config(text=val)
+
+
+
+workaround = []
+def showImg(url):
+    img_url = url
+    response = requests.get(img_url)
+    img_data = response.content
+    img = Image.open(BytesIO(img_data))
+    img = img.resize((250, 250))
+    img = ImageTk.PhotoImage(img)
+    workaround.append(img)  # without this garbage collection claims the reference and it doesn't work, stupid.
+    panel = tk.Label(window, image=img, name="displayedImage")  # set a name so can be found in other functions
+    panel.place(x=350, y=20)
 
 
 cl = Colors()  # create instance of Colors()
@@ -74,9 +123,9 @@ window = tk.Tk()
 width = 650     # width of window
 height = 400    # height of window
 windowSize = '{w}x{h}'.format(w=width, h=height)    # format needed for tk.geometry()
-window.geometry(windowSize)     # apply sizing
+window.geometry(windowSize)     # apply sizing. !Does not care about users resolution!
 font = tkFont.Font(family='Helvetica', size=12)     # font used
-window.title('Build 0.3')   # text shown in title-bar
+window.title('Build 0.6')   # text shown in title-bar
 window.iconbitmap('froge.ico')  # set icon to be used in title-bar
 window.configure(bg=cl.gray)  # set background colour of window
 window.resizable(width=False, height=False)     # disable resizing as widgets are not scalable anyway
@@ -107,21 +156,8 @@ Image_Label.place(x=10, y=150)
 Image_Field = Field(window)
 Image_Field.place(x=10, y=180)
 
+Warn = Label(window)
+Warn.place(x=10, y=250)
 
 
-workaround = []
-def showImg():
-    img_url = 'https://i.imgur.com/Voz3cKk.jpg'
-    response = requests.get(img_url)
-    img_data = response.content
-    img = Image.open(BytesIO(img_data))
-    img = img.resize((250, 250))
-    img = ImageTk.PhotoImage(img)
-    workaround.append(img)  # without this garbage collection claims the reference and it doesn't work, stupid.
-    panel = tk.Label(window, image=img)
-    # panel.pack(side="bottom", fill="both", expand="yes")
-    panel.place(x=350, y=20)
-
-
-# showImg()
 window.mainloop()
